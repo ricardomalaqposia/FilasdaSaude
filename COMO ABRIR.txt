@@ -1,0 +1,18 @@
+COMO ABRIR A DEMONSTRAÇÃO
+=========================
+
+1. Feche todas as abas do site no navegador.
+
+2. Nesta pasta, dê um DUPLO CLIQUE no arquivo:
+   Abrir o site.bat
+
+3. Espere a tela com três cartões:
+   Usuário / Funcionário da saúde / Acompanhar filas
+
+4. Dados para testar:
+   Usuário .......... CPF  971.663.735-71
+   Funcionário ...... ID   FUN095
+   Acompanhar filas . não precisa de senha
+
+Se ainda aparecer uma frase de erro, clique com o botão direito
+em index.html > Abrir com > Google Chrome.
