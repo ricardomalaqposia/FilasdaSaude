@@ -543,16 +543,16 @@ const App = (() => {
       restore = null;
     }
     if (!state.ready && !state.loadError) {
-      root.innerHTML = `<div class="boot-screen"><div class="boot-mark"></div><p>Carregando filas da saúde…</p></div>`;
+      root.innerHTML = UI.creditBar() + `<div class="boot-screen"><div class="boot-mark"></div><p>Abrindo o sistema…</p></div>`;
       return;
     }
     if (state.loadError) {
-      root.innerHTML = UI.loadError(state.loadError);
+      root.innerHTML = UI.creditBar() + UI.loadError(state.loadError);
       return;
     }
-    if (state.screen === "landing") root.innerHTML = UI.landing();
+    if (state.screen === "landing") root.innerHTML = UI.creditBar() + UI.landing();
     else if (state.screen === "login-user") {
-      root.innerHTML = UI.authScreen({
+      root.innerHTML = UI.creditBar() + UI.authScreen({
         title: "Acesso do usuário",
         lead: "Informe o CPF cadastrado para ver as filas em que você está.",
         hint: "Exemplo: 971.663.735-71",
@@ -563,7 +563,7 @@ const App = (() => {
         backLabel: "Voltar",
       });
     } else if (state.screen === "login-staff") {
-      root.innerHTML = UI.authScreen({
+      root.innerHTML = UI.creditBar() + UI.authScreen({
         title: "Acesso do funcionário",
         lead: "Informe o identificador do funcionário para abrir o painel completo.",
         hint: "Exemplo: FUN095",
@@ -574,7 +574,7 @@ const App = (() => {
         backLabel: "Voltar",
       });
     } else {
-      root.innerHTML = renderApp();
+      root.innerHTML = UI.creditBar() + renderApp();
       if (state.sidebarOpen) document.getElementById("sidebar")?.classList.add("open");
     }
     if (state.toast) {

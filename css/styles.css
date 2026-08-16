@@ -21,6 +21,7 @@
   --shadow: 0 8px 24px rgba(27, 37, 89, 0.06);
   --sidebar: 260px;
   --header: 72px;
+  --credit: 72px;
 }
 
 * {
@@ -56,8 +57,34 @@ a {
   min-height: 100vh;
 }
 
+.credit-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  min-height: var(--credit);
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 20px;
+  box-shadow: 0 2px 10px rgba(27, 37, 89, 0.04);
+}
+
+.credit-bar img {
+  height: 52px;
+  width: auto;
+  display: block;
+}
+
+.credit-bar p {
+  color: #3b4d61;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .boot-screen {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--credit));
   display: grid;
   place-content: center;
   gap: 16px;
@@ -81,7 +108,7 @@ a {
 /* Landing */
 
 .landing {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--credit));
   display: flex;
   flex-direction: column;
   background:
@@ -222,7 +249,7 @@ a {
 /* Auth */
 
 .auth-wrap {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--credit));
   display: grid;
   place-items: center;
   padding: 24px;
@@ -366,7 +393,7 @@ a {
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar) 1fr;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--credit));
 }
 
 .sidebar {
@@ -376,9 +403,9 @@ a {
   display: flex;
   flex-direction: column;
   position: sticky;
-  top: 0;
+  top: var(--credit);
   overflow-y: auto;
-  height: 100vh;
+  height: calc(100vh - var(--credit));
 }
 
 .sidebar-brand {
@@ -487,7 +514,7 @@ a {
   gap: 16px;
   padding: 0 24px;
   position: sticky;
-  top: 0;
+  top: var(--credit);
   z-index: 5;
 }
 
@@ -993,7 +1020,20 @@ tr:hover td {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 700px) {
+  .credit-bar {
+    padding: 8px 12px;
+    gap: 10px;
+  }
+
+  .credit-bar img {
+    height: 40px;
+  }
+
+  .credit-bar p {
+    font-size: 12px;
+  }
+}
   .role-grid,
   .form-grid,
   .kpi-grid {
@@ -1006,8 +1046,9 @@ tr:hover td {
 
   .sidebar {
     position: fixed;
-    inset: 0 auto 0 0;
+    inset: var(--credit) auto 0 0;
     width: var(--sidebar);
+    height: calc(100vh - var(--credit));
     transform: translateX(-110%);
     z-index: 15;
     transition: transform 0.2s ease;

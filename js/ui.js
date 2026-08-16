@@ -75,6 +75,15 @@ const UI = (() => {
     `).join("")}</section>`;
   }
 
+  function creditBar() {
+    return `
+      <header class="credit-bar">
+        <img src="img/logo-junior-malaquias.png" alt="Júnior Malaquias">
+        <p>Teste desenvolvido por Júnior Malaquias</p>
+      </header>
+    `;
+  }
+
   function landing() {
     return `
       <div class="landing">
@@ -291,6 +300,7 @@ const UI = (() => {
 
   return {
     Icons,
+    creditBar,
     sparkline,
     trendHtml,
     statusBadge,
