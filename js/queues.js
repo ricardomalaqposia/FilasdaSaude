@@ -6,6 +6,8 @@ const Queues = (() => {
   };
 
   const FILA_ATIVA = new Set(["Aguardando", "Agendado"]);
+  const PRIORIDADES = ["Emergência", "Urgência", "Eletiva"];
+  const HISTORICO = new Set(["Atendido", "Cancelado"]);
 
   function rankPriority(value) {
     return PRIORIDADE_ORDEM[value] ?? 99;
@@ -45,6 +47,38 @@ const Queues = (() => {
       posicao: "—",
     }));
     return active.concat(inactive);
+  }
+
+  function groupActiveByPriority(procedimento) {
+    const grouped = {
+      Emergência: [],
+      Urgência: [],
+      Eletiva: [],
+    };
+    byProcedure(procedimento).forEach((item) => {
+      const key = grouped[item.PRIORIDADE] ? item.PRIORIDADE : "Eletiva";
+      grouped[key].push(item);
+    });
+    PRIORIDADES.forEach((priority) => {
+      grouped[priority] = grouped[priority].map((item, index) => ({
+        ...item,
+        ordem: index + 1,
+      }));
+    });
+    return grouped;
+  }
+
+  function historyByProcedure(procedimento) {
+    return Store.getSolicitations()
+      .filter((item) => item.PROCEDIMENTO === procedimento && HISTORICO.has(item.STATUS))
+      .slice()
+      .sort((a, b) => {
+        const stampA = a.encerradoEm || a.atendidoEm || a.CARIMBO_DATA_HORA || "";
+        const stampB = b.encerradoEm || b.atendidoEm || b.CARIMBO_DATA_HORA || "";
+        const byDate = stampB.localeCompare(stampA);
+        if (byDate !== 0) return byDate;
+        return String(b.id).localeCompare(String(a.id));
+      });
   }
 
   function monthlySeries(procedimento, months = 6) {
@@ -131,6 +165,20 @@ const Queues = (() => {
     });
   }
 
+  function userHistory(cpf) {
+    const digits = Utils.cpfDigits(cpf);
+    return Store.getSolicitations()
+      .filter((item) => Utils.cpfDigits(item.CPF_FICTICIO) === digits && HISTORICO.has(item.STATUS))
+      .slice()
+      .sort((a, b) => {
+        const stampA = a.encerradoEm || a.atendidoEm || a.CARIMBO_DATA_HORA || "";
+        const stampB = b.encerradoEm || b.atendidoEm || b.CARIMBO_DATA_HORA || "";
+        const byDate = stampB.localeCompare(stampA);
+        if (byDate !== 0) return byDate;
+        return String(b.id).localeCompare(String(a.id));
+      });
+  }
+
   function countsByType() {
     const catalog = Store.getCatalog();
     const active = Store.getSolicitations().filter((item) => FILA_ATIVA.has(item.STATUS));
@@ -156,10 +204,14 @@ const Queues = (() => {
 
   return {
     FILA_ATIVA,
+    PRIORIDADES,
     byProcedure,
+    groupActiveByPriority,
+    historyByProcedure,
     kpis,
     forecast,
     userQueues,
+    userHistory,
     countsByType,
     displayName,
     isOwnRow,

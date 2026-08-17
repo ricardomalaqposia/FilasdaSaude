@@ -921,7 +921,127 @@ tr:hover td {
   margin-bottom: 28px;
 }
 
-.you-chip {
+.queue-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  margin: 4px 0 14px;
+}
+
+.queue-toolbar h2 {
+  font-size: 18px;
+}
+
+.queue-toolbar p {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.queue-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.priority-panel,
+.history-panel {
+  overflow: hidden;
+}
+
+.priority-panel-emergencia {
+  border-top: 4px solid #dc2626;
+}
+
+.priority-panel-urgencia {
+  border-top: 4px solid #ea580c;
+}
+
+.priority-panel-eletiva {
+  border-top: 4px solid #2d46b9;
+}
+
+.history-panel {
+  border-top: 4px solid #64748b;
+}
+
+.history-panel .panel-head,
+.priority-panel .panel-head {
+  align-items: flex-start;
+}
+
+.history-panel table {
+  min-width: 980px;
+}
+
+.panel-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.priority-panel-emergencia .panel-kicker { color: #b91c1c; }
+.priority-panel-urgencia .panel-kicker { color: #c2410c; }
+.priority-panel-eletiva .panel-kicker { color: #2d46b9; }
+
+.count-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #eef3ff;
+  color: #3b4a8a;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.priority-panel-emergencia .count-chip {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.priority-panel-urgencia .count-chip {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.panel-note {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  margin-top: 6px;
+  max-width: 52rem;
+}
+
+.table-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--navy);
+  font-weight: 700;
+  text-align: left;
+}
+
+.table-link:hover {
+  text-decoration: underline;
+}
+
+.table-sub {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.user-history-panel {
+  margin-top: 8px;
+}
   margin-left: 6px;
   font-size: 11px;
   background: var(--navy);
@@ -1012,6 +1132,13 @@ tr:hover td {
   background: var(--bg);
   padding: 2px 6px;
   border-radius: 6px;
+}
+
+@media (max-width: 700px) {
+  .queue-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 @media (max-width: 1100px) {

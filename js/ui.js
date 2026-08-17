@@ -236,7 +236,7 @@ const UI = (() => {
     }).join("")}</nav>`;
   }
 
-  function table({ columns, rows, page, pageSize, total, empty, footerStart }) {
+  function table({ columns, rows, page, pageSize, total, empty, footerStart, section }) {
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
     const start = total ? footerStart : 0;
     const end = total ? Math.min(footerStart + Math.max(rows.length, 1) - 1, total) : 0;
@@ -245,6 +245,7 @@ const UI = (() => {
     const to = Math.min(pageCount, from + 6);
     from = Math.max(1, to - 6);
     for (let i = from; i <= to; i += 1) pages.push(i);
+    const sectionAttr = section ? ` data-section="${Utils.escapeHtml(section)}"` : "";
 
     return `
       <div class="table-wrap">
@@ -260,7 +261,7 @@ const UI = (() => {
       <div class="table-foot">
         <span>Mostrando ${start} a ${end} de ${total}</span>
         <div class="pager">
-          ${pages.map((n) => `<button class="${n === page ? "active" : ""}" data-action="page" data-page="${n}">${n}</button>`).join("")}
+          ${pages.map((n) => `<button class="${n === page ? "active" : ""}" data-action="page" data-page="${n}"${sectionAttr}>${n}</button>`).join("")}
         </div>
       </div>
     `;

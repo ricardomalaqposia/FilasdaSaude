@@ -1,6 +1,15 @@
 const App = (() => {
   const SESSION_KEY = "filas_saude_session";
   const PAGE_SIZE = 8;
+  const PRIORITY_PANELS = [
+    { key: "Emergência", title: "Fila de emergência", tone: "emergencia" },
+    { key: "Urgência", title: "Fila de urgência", tone: "urgencia" },
+    { key: "Eletiva", title: "Fila eletiva", tone: "eletiva" },
+  ];
+
+  function emptyPages() {
+    return { Emergência: 1, Urgência: 1, Eletiva: 1, historico: 1, historicoUsuario: 1 };
+  }
 
   const state = {
     ready: false,
@@ -12,6 +21,7 @@ const App = (() => {
     grupo: "",
     procedimento: "",
     page: 1,
+    pages: emptyPages(),
     search: "",
     statusFilter: "ativas",
     menuId: "",
@@ -45,6 +55,7 @@ const App = (() => {
     state.grupo = "";
     state.procedimento = "";
     state.page = 1;
+    state.pages = emptyPages();
     state.menuId = "";
     state.modal = null;
   }
@@ -60,23 +71,64 @@ const App = (() => {
     }, 2400);
   }
 
-  function currentQueue() {
+  function matchesSearch(item) {
+    const query = state.search.trim().toLowerCase();
+    if (!query) return true;
+    const viewerCpf = state.session?.role === "usuario" ? state.session.cpf : null;
+    const visibleName = Queues.displayName(item, viewerCpf).toLowerCase();
+    const haystack = [
+      visibleName,
+      String(item.posicao || item.ordem || ""),
+      item.PROCEDIMENTO,
+      item.TIPO_ATENDIMENTO,
+      item.GRUPO_COMPLEXIDADE,
+      item.PRIORIDADE,
+      item.prioridadeInicial,
+      item.STATUS,
+      item.dataInsercao,
+      item.prioridadeAlteradaEm,
+      item.encerradoEm,
+      item.atendidoEm,
+      item.id,
+    ];
+    if (state.session?.role === "funcionario") {
+      haystack.push(item.NOME_PACIENTE, item.CPF_FICTICIO, item.ID_PACIENTE);
+    }
+    return haystack.join(" ").toLowerCase().includes(query);
+  }
+
+  function activeQueueItems() {
     if (!state.procedimento) return [];
-    return Queues.byProcedure(state.procedimento, {
-      includeInactive: state.session?.role === "funcionario" && state.statusFilter !== "ativas",
-    }).filter((item) => {
-      if (state.session?.role === "funcionario" && state.statusFilter !== "ativas" && state.statusFilter !== "todas") {
+    const allowed = new Set(["ativas", "Aguardando", "Agendado"]);
+    if (!allowed.has(state.statusFilter)) state.statusFilter = "ativas";
+    return Queues.byProcedure(state.procedimento).filter((item) => {
+      if (state.session?.role === "funcionario" && state.statusFilter !== "ativas") {
         if (item.STATUS !== state.statusFilter) return false;
       }
-      const query = state.search.trim().toLowerCase();
-      if (!query) return true;
-      const visibleName = Queues.displayName(item, state.session?.role === "usuario" ? state.session.cpf : null).toLowerCase();
-      const haystack = [visibleName, String(item.posicao), item.PRIORIDADE, item.STATUS, item.dataInsercao, item.id];
-      if (state.session?.role === "funcionario") {
-        haystack.push(item.NOME_PACIENTE, item.CPF_FICTICIO, item.ID_PACIENTE);
-      }
-      return haystack.join(" ").toLowerCase().includes(query);
+      return matchesSearch(item);
     });
+  }
+
+  function historyQueueItems() {
+    if (!state.procedimento) return [];
+    return Queues.historyByProcedure(state.procedimento).filter(matchesSearch);
+  }
+
+  function pagedSlice(items, section) {
+    const total = items.length;
+    const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    let page = state.pages[section] || 1;
+    if (page > pageCount) {
+      page = pageCount;
+      state.pages[section] = page;
+    }
+    const startIndex = (page - 1) * PAGE_SIZE;
+    return {
+      page,
+      total,
+      start: total ? startIndex + 1 : 0,
+      rows: items.slice(startIndex, startIndex + PAGE_SIZE),
+    };
   }
 
   function renderKpis(stats, extra) {
@@ -106,69 +158,238 @@ const App = (() => {
     return UI.kpiCards(cards);
   }
 
-  function queueTable(rows, total, options) {
+  function patientCell(item, staff, viewerCpf) {
+    const own = Queues.isOwnRow(item, viewerCpf);
+    const name = staff ? item.NOME_PACIENTE : Queues.displayName(item, viewerCpf);
+    const you = own ? '<span class="you-chip">você</span>' : "";
+    return `${Utils.escapeHtml(name)}${you}`;
+  }
+
+  function staffActions(item, staff) {
+    if (!staff) return "";
+    return `
+      <td class="row-actions">
+        <button class="icon-btn" data-action="toggle-menu" data-id="${Utils.escapeHtml(item.id)}" aria-label="Ações">${Icons.dots}</button>
+        ${state.menuId === item.id ? `
+          <div class="menu">
+            <button data-action="open-edit" data-id="${Utils.escapeHtml(item.id)}">Editar entrada</button>
+            <button data-action="mark-done" data-id="${Utils.escapeHtml(item.id)}">Marcar como realizado</button>
+            <button data-action="change-priority" data-id="${Utils.escapeHtml(item.id)}">Mudar prioridade</button>
+            <button data-action="cancel-item" data-id="${Utils.escapeHtml(item.id)}">Cancelar</button>
+          </div>
+        ` : ""}
+      </td>
+    `;
+  }
+
+  function queueToolbar(staff) {
+    return `
+      <div class="queue-toolbar">
+        <div>
+          <h2>Filas do procedimento</h2>
+          <p>Separadas por prioridade. Dentro de cada lista, vale quem entrou primeiro.</p>
+        </div>
+        <div class="panel-actions">
+          ${staff ? `
+            <select class="filter-select" data-action="filter-status">
+              <option value="ativas" ${state.statusFilter === "ativas" ? "selected" : ""}>Fila ativa</option>
+              <option value="Aguardando" ${state.statusFilter === "Aguardando" ? "selected" : ""}>Aguardando</option>
+              <option value="Agendado" ${state.statusFilter === "Agendado" ? "selected" : ""}>Agendado</option>
+            </select>
+          ` : ""}
+          <button class="btn btn-outline btn-sm" data-action="clear-search">Limpar busca</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function priorityQueueTable(panel, items, options) {
     const staff = options.staff;
     const viewerCpf = options.viewerCpf;
-    const start = total ? (state.page - 1) * PAGE_SIZE + 1 : 0;
+    const ordered = items.map((item, index) => ({ ...item, ordem: index + 1 }));
+    const slice = pagedSlice(ordered, panel.key);
     const columns = staff
-      ? ["Ordem", "Paciente", "CPF", "Prioridade", "Data de inserção", "Status", ""]
-      : ["Ordem", "Paciente", "Prioridade", "Data de inserção", "Status"];
-    const htmlRows = rows.map((item) => {
+      ? ["Ordem", "Paciente", "CPF", "Data de inserção", "Status", ""]
+      : ["Ordem", "Paciente", "Data de inserção", "Status"];
+    const htmlRows = slice.rows.map((item) => {
       const own = Queues.isOwnRow(item, viewerCpf);
-      const name = staff ? item.NOME_PACIENTE : Queues.displayName(item, viewerCpf);
-      const you = own ? '<span class="you-chip">você</span>' : "";
-      const actions = staff ? `
-        <td class="row-actions">
-          <button class="icon-btn" data-action="toggle-menu" data-id="${Utils.escapeHtml(item.id)}" aria-label="Ações">${Icons.dots}</button>
-          ${state.menuId === item.id ? `
-            <div class="menu">
-              <button data-action="open-edit" data-id="${Utils.escapeHtml(item.id)}">Editar entrada</button>
-              <button data-action="mark-done" data-id="${Utils.escapeHtml(item.id)}">Marcar como realizado</button>
-              <button data-action="change-priority" data-id="${Utils.escapeHtml(item.id)}">Mudar prioridade</button>
-              <button data-action="cancel-item" data-id="${Utils.escapeHtml(item.id)}">Cancelar</button>
-            </div>
-          ` : ""}
-        </td>
-      ` : "";
       return `
         <tr class="${own ? "you" : ""}">
-          <td>${Utils.escapeHtml(String(item.posicao))}</td>
-          <td>${Utils.escapeHtml(name)}${you}</td>
+          <td>${Utils.escapeHtml(String(item.ordem))}</td>
+          <td>${patientCell(item, staff, viewerCpf)}</td>
           ${staff ? `<td>${Utils.escapeHtml(item.CPF_FICTICIO)}</td>` : ""}
-          <td class="${UI.priorityClass(item.PRIORIDADE)}">${Utils.escapeHtml(item.PRIORIDADE)}</td>
           <td>${Utils.escapeHtml(Utils.formatDateTime(item.dataInsercao))}</td>
           <td>${UI.statusBadge(item.STATUS)}</td>
-          ${actions}
+          ${staffActions(item, staff)}
         </tr>
       `;
     });
 
     return `
-      <section class="panel">
+      <section class="panel priority-panel priority-panel-${panel.tone}">
         <div class="panel-head">
-          <h2>${Utils.escapeHtml(options.title)}</h2>
-          <div class="panel-actions">
-            ${staff ? `
-              <select class="filter-select" data-action="filter-status">
-                <option value="ativas" ${state.statusFilter === "ativas" ? "selected" : ""}>Fila ativa</option>
-                <option value="todas" ${state.statusFilter === "todas" ? "selected" : ""}>Todas</option>
-                <option value="Aguardando" ${state.statusFilter === "Aguardando" ? "selected" : ""}>Aguardando</option>
-                <option value="Agendado" ${state.statusFilter === "Agendado" ? "selected" : ""}>Agendado</option>
-                <option value="Atendido" ${state.statusFilter === "Atendido" ? "selected" : ""}>Atendido</option>
-                <option value="Cancelado" ${state.statusFilter === "Cancelado" ? "selected" : ""}>Cancelado</option>
-              </select>
-            ` : ""}
-            <button class="btn btn-outline btn-sm" data-action="clear-search">Limpar busca</button>
+          <div>
+            <p class="panel-kicker">${Utils.escapeHtml(panel.key)}</p>
+            <h2>${Utils.escapeHtml(panel.title)}</h2>
           </div>
+          <span class="count-chip">${slice.total} ${slice.total === 1 ? "pessoa" : "pessoas"}</span>
         </div>
         ${UI.table({
           columns,
           rows: htmlRows,
-          page: state.page,
+          page: slice.page,
           pageSize: PAGE_SIZE,
-          total,
-          footerStart: start,
-          empty: "Nenhuma pessoa nesta fila com os filtros atuais.",
+          total: slice.total,
+          footerStart: slice.start,
+          section: panel.key,
+          empty: `Nenhuma pessoa na fila de ${panel.key.toLowerCase()} com os filtros atuais.`,
+        })}
+      </section>
+    `;
+  }
+
+  function priorityChangeLabel(item) {
+    const changed = Boolean(item.prioridadeAlteradaEm);
+    if (changed && item.prioridadeInicial && item.prioridadeInicial !== item.PRIORIDADE) {
+      return `${item.prioridadeInicial} → ${item.PRIORIDADE}`;
+    }
+    return item.PRIORIDADE || "—";
+  }
+
+  function userPositionsPanel(queues) {
+    const htmlRows = queues.map((item) => {
+      const own = item.own;
+      if (!own) return "";
+      const selected = item.procedimento === state.procedimento;
+      const previsaoData = item.previsao?.date ? Utils.formatDate(item.previsao.date) : "Indisponível";
+      return `
+        <tr class="${selected ? "you" : ""}">
+          <td>
+            <button class="table-link" data-action="pick-procedimento" data-tipo="${Utils.escapeHtml(item.tipo)}" data-grupo="${Utils.escapeHtml(item.grupo)}" data-procedimento="${Utils.escapeHtml(item.procedimento)}">${Utils.escapeHtml(item.procedimento)}</button>
+            <div class="table-sub">${Utils.escapeHtml(item.tipo)} · ${Utils.escapeHtml(item.grupo)}</div>
+          </td>
+          <td class="${UI.priorityClass(own.PRIORIDADE)}">${Utils.escapeHtml(own.PRIORIDADE)}</td>
+          <td>${Utils.escapeHtml(String(own.posicao))}</td>
+          <td>${UI.statusBadge(own.STATUS)}</td>
+          <td>
+            ${Utils.escapeHtml(previsaoData)}
+            <div class="table-sub">${Utils.escapeHtml(item.previsao?.label || "")}</div>
+          </td>
+        </tr>
+      `;
+    }).filter(Boolean);
+
+    return `
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Filas ativas</p>
+            <h2>Sua posição em cada fila</h2>
+            <p class="panel-note">Clique no procedimento para ver a fila completa, separada por prioridade.</p>
+          </div>
+          <span class="count-chip">${queues.length} ${queues.length === 1 ? "fila" : "filas"}</span>
+        </div>
+        ${UI.table({
+          columns: ["Procedimento", "Prioridade", "Sua posição", "Status", "Previsão"],
+          rows: htmlRows,
+          page: 1,
+          pageSize: Math.max(queues.length, 1),
+          total: queues.length,
+          footerStart: queues.length ? 1 : 0,
+          empty: "Você não está em nenhuma fila ativa no momento.",
+        })}
+      </section>
+    `;
+  }
+
+  function userHistoryPanel(items) {
+    const slice = pagedSlice(items, "historicoUsuario");
+    const htmlRows = slice.rows.map((item) => {
+      const changed = Boolean(item.prioridadeAlteradaEm);
+      return `
+        <tr>
+          <td>
+            <strong>${Utils.escapeHtml(item.PROCEDIMENTO)}</strong>
+            <div class="table-sub">${Utils.escapeHtml(item.TIPO_ATENDIMENTO)} · ${Utils.escapeHtml(item.GRUPO_COMPLEXIDADE)}</div>
+          </td>
+          <td class="${UI.priorityClass(item.PRIORIDADE)}">${Utils.escapeHtml(priorityChangeLabel(item))}</td>
+          <td>${Utils.escapeHtml(Utils.formatDateTime(item.dataInsercao))}</td>
+          <td>${changed ? Utils.escapeHtml(Utils.formatDateTime(item.prioridadeAlteradaEm)) : "—"}</td>
+          <td>${Utils.escapeHtml(Utils.formatDateTime(item.encerradoEm || item.atendidoEm || item.CARIMBO_DATA_HORA))}</td>
+          <td>${UI.statusBadge(item.STATUS)}</td>
+        </tr>
+      `;
+    });
+
+    return `
+      <section class="panel history-panel user-history-panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Seus procedimentos</p>
+            <h2>Histórico de realizações e cancelamentos</h2>
+            <p class="panel-note">Procedimentos seus que já foram realizados ou cancelados, com a prioridade e as datas da inscrição, da alteração (se houve) e do encerramento.</p>
+          </div>
+          <span class="count-chip">${slice.total} ${slice.total === 1 ? "registro" : "registros"}</span>
+        </div>
+        ${UI.table({
+          columns: ["Procedimento", "Prioridade", "Data de inscrição", "Alteração de prioridade", "Data da realização ou cancelamento", "Status"],
+          rows: htmlRows,
+          page: slice.page,
+          pageSize: PAGE_SIZE,
+          total: slice.total,
+          footerStart: slice.start,
+          section: "historicoUsuario",
+          empty: "Você ainda não tem procedimentos realizados ou cancelados nesta demonstração.",
+        })}
+      </section>
+    `;
+  }
+
+  function historyTable(items, options) {
+    const staff = options.staff;
+    const viewerCpf = options.viewerCpf;
+    const slice = pagedSlice(items, "historico");
+    const columns = staff
+      ? ["Paciente", "CPF", "Prioridade", "Data de inscrição", "Alteração de prioridade", "Data da realização ou cancelamento", "Status"]
+      : ["Paciente", "Prioridade", "Data de inscrição", "Alteração de prioridade", "Data da realização ou cancelamento", "Status"];
+    const htmlRows = slice.rows.map((item) => {
+      const own = Queues.isOwnRow(item, viewerCpf);
+      const changed = Boolean(item.prioridadeAlteradaEm);
+      const priorityLabel = changed && item.prioridadeInicial && item.prioridadeInicial !== item.PRIORIDADE
+        ? `${item.prioridadeInicial} → ${item.PRIORIDADE}`
+        : item.PRIORIDADE;
+      return `
+        <tr class="${own ? "you" : ""}">
+          <td>${patientCell(item, staff, viewerCpf)}</td>
+          ${staff ? `<td>${Utils.escapeHtml(item.CPF_FICTICIO)}</td>` : ""}
+          <td class="${UI.priorityClass(item.PRIORIDADE)}">${Utils.escapeHtml(priorityLabel)}</td>
+          <td>${Utils.escapeHtml(Utils.formatDateTime(item.dataInsercao))}</td>
+          <td>${changed ? Utils.escapeHtml(Utils.formatDateTime(item.prioridadeAlteradaEm)) : "—"}</td>
+          <td>${Utils.escapeHtml(Utils.formatDateTime(item.encerradoEm || item.atendidoEm || item.CARIMBO_DATA_HORA))}</td>
+          <td>${UI.statusBadge(item.STATUS)}</td>
+        </tr>
+      `;
+    });
+
+    return `
+      <section class="panel history-panel">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Encerrados</p>
+            <h2>Histórico de realizações e cancelamentos</h2>
+            <p class="panel-note">Registros já realizados ou cancelados neste procedimento, com a prioridade e as datas da inscrição, da alteração (se houve) e do encerramento.</p>
+          </div>
+          <span class="count-chip">${slice.total} ${slice.total === 1 ? "registro" : "registros"}</span>
+        </div>
+        ${UI.table({
+          columns,
+          rows: htmlRows,
+          page: slice.page,
+          pageSize: PAGE_SIZE,
+          total: slice.total,
+          footerStart: slice.start,
+          section: "historico",
+          empty: "Ainda não há realizações ou cancelamentos neste procedimento.",
         })}
       </section>
     `;
@@ -176,13 +397,14 @@ const App = (() => {
 
   function renderQueueView() {
     const stats = Queues.kpis(state.procedimento);
-    const allRows = currentQueue();
-    const total = allRows.length;
-    const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    if (state.page > pageCount) state.page = pageCount;
-    const rows = allRows.slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE);
     const staff = state.session.role === "funcionario";
     const viewerCpf = state.session.role === "usuario" ? state.session.cpf : null;
+    const grouped = { Emergência: [], Urgência: [], Eletiva: [] };
+    activeQueueItems().forEach((item) => {
+      const key = grouped[item.PRIORIDADE] ? item.PRIORIDADE : "Eletiva";
+      grouped[key].push(item);
+    });
+    const historyItems = historyQueueItems();
     const own = viewerCpf
       ? Queues.byProcedure(state.procedimento).find((item) => Queues.isOwnRow(item, viewerCpf))
       : null;
@@ -232,17 +454,33 @@ const App = (() => {
       { label: state.grupo, action: "crumb-grupo", tipo: state.tipo, grupo: state.grupo },
       { label: state.procedimento },
     ]);
+    const queueHeading = state.session.role === "usuario"
+      ? `
+        <div class="queue-toolbar">
+          <div>
+            <h2>${Utils.escapeHtml(state.procedimento)}</h2>
+            <p>${Utils.escapeHtml(state.tipo)} · ${Utils.escapeHtml(state.grupo)} · fila completa para conferir a sua posição</p>
+          </div>
+        </div>
+      `
+      : `
+        <div class="page-head">
+          <div>
+            <h1>${Utils.escapeHtml(state.procedimento)}</h1>
+            <p>${Utils.escapeHtml(state.tipo)} · ${Utils.escapeHtml(state.grupo)} · filas por prioridade, depois pela data de inserção</p>
+          </div>
+        </div>
+      `;
 
     return `
       ${crumbs}
-      <div class="page-head">
-        <div>
-          <h1>${Utils.escapeHtml(state.procedimento)}</h1>
-          <p>${Utils.escapeHtml(state.tipo)} · ${Utils.escapeHtml(state.grupo)} · ordem por prioridade e antiguidade</p>
-        </div>
-      </div>
+      ${queueHeading}
       ${renderKpis(stats, extra)}
-      ${queueTable(rows, total, { staff, viewerCpf, title: "Fila do procedimento" })}
+      ${queueToolbar(staff)}
+      <div class="queue-stack">
+        ${PRIORITY_PANELS.map((panel) => priorityQueueTable(panel, grouped[panel.key], { staff, viewerCpf })).join("")}
+      </div>
+      ${state.session.role === "usuario" ? "" : historyTable(historyItems, { staff, viewerCpf })}
     `;
   }
 
@@ -320,44 +558,55 @@ const App = (() => {
 
   function renderUserHome() {
     const queues = Queues.userQueues(state.session.cpf);
-    if (!queues.length) {
+    const history = Queues.userHistory(state.session.cpf).filter(matchesSearch);
+    const query = state.search.trim().toLowerCase();
+    const visibleQueues = query
+      ? queues.filter((item) => {
+        const own = item.own || {};
+        const haystack = [
+          item.procedimento,
+          item.tipo,
+          item.grupo,
+          own.PRIORIDADE,
+          own.STATUS,
+          String(own.posicao || ""),
+        ].join(" ").toLowerCase();
+        return haystack.includes(query);
+      })
+      : queues;
+
+    if (!queues.length && !history.length) {
       return `
         <div class="page-head">
           <div>
             <h1>Minhas filas</h1>
-            <p>Não há solicitações ativas para o CPF informado.</p>
+            <p>Não há solicitações ativas nem histórico para o CPF informado.</p>
           </div>
         </div>
         <div class="panel"><p class="empty">Nenhuma fila encontrada para ${Utils.escapeHtml(state.session.nome)}.</p></div>
       `;
     }
 
-    if (!state.procedimento || !queues.some((item) => item.procedimento === state.procedimento)) {
-      state.procedimento = queues[0].procedimento;
-      state.tipo = queues[0].tipo;
-      state.grupo = queues[0].grupo;
+    if (queues.length) {
+      if (state.procedimento && !queues.some((item) => item.procedimento === state.procedimento)) {
+        state.procedimento = "";
+      }
+    } else {
+      state.procedimento = "";
     }
 
-    const selected = queues.find((item) => item.procedimento === state.procedimento) || queues[0];
-    state.tipo = selected.tipo;
-    state.grupo = selected.grupo;
-    state.procedimento = selected.procedimento;
+    const showQueue = queues.some((item) => item.procedimento === state.procedimento);
 
     return `
       <div class="page-head">
         <div>
           <h1>Minhas filas</h1>
-          <p>Olá, ${Utils.escapeHtml(state.session.nome)}. Sua posição respeita a prioridade e a data de inserção.</p>
+          <p>Olá, ${Utils.escapeHtml(state.session.nome)}. Primeiro veja a sua posição em cada fila; em seguida, o histórico dos procedimentos já realizados ou cancelados.</p>
         </div>
       </div>
-      ${queues.length > 1 ? UI.choiceCards(queues.map((item) => ({
-        tipo: item.tipo,
-        grupo: item.grupo,
-        procedimento: item.procedimento,
-        title: item.procedimento,
-        subtitle: item.own ? `Posição ${item.own.posicao} · ${item.own.PRIORIDADE}` : item.tipo,
-      })), "pick-procedimento") : ""}
-      ${renderQueueView()}
+      ${userPositionsPanel(visibleQueues)}
+      ${showQueue ? renderQueueView() : ""}
+      ${userHistoryPanel(history)}
     `;
   }
 
@@ -679,7 +928,7 @@ const App = (() => {
       "go-public": () => enterPublic(),
       "go-home": () => { state.session = null; saveSession(); state.screen = "landing"; resetBrowse(); },
       "toggle-sidebar": () => { state.sidebarOpen = !state.sidebarOpen; },
-      "clear-search": () => { state.search = ""; state.page = 1; },
+      "clear-search": () => { state.search = ""; state.page = 1; state.pages = emptyPages(); },
       "crumb-root": () => { resetBrowse(); state.nav = "filas"; },
       "close-modal": () => { state.modal = null; },
     };
@@ -705,6 +954,7 @@ const App = (() => {
         state.nav = nav;
         state.sidebarOpen = false;
         state.page = 1;
+        state.pages = emptyPages();
         if (nav === "dashboard") resetBrowse();
         if (nav === "filas") { state.tipo = ""; state.grupo = ""; state.procedimento = ""; }
         if (nav === "insert") { state.formError = ""; }
@@ -719,6 +969,7 @@ const App = (() => {
       state.grupo = "";
       state.procedimento = "";
       state.page = 1;
+      state.pages = emptyPages();
       render();
       return;
     }
@@ -727,6 +978,7 @@ const App = (() => {
       state.grupo = actionEl.getAttribute("data-grupo");
       state.procedimento = "";
       state.page = 1;
+      state.pages = emptyPages();
       render();
       return;
     }
@@ -735,6 +987,7 @@ const App = (() => {
       state.grupo = actionEl.getAttribute("data-grupo") || state.grupo;
       state.procedimento = actionEl.getAttribute("data-procedimento");
       state.page = 1;
+      state.pages = emptyPages();
       render();
       return;
     }
@@ -743,6 +996,7 @@ const App = (() => {
       state.grupo = "";
       state.procedimento = "";
       state.page = 1;
+      state.pages = emptyPages();
       render();
       return;
     }
@@ -751,11 +1005,18 @@ const App = (() => {
       state.grupo = actionEl.getAttribute("data-grupo");
       state.procedimento = "";
       state.page = 1;
+      state.pages = emptyPages();
       render();
       return;
     }
     if (action === "page") {
-      state.page = Number(actionEl.getAttribute("data-page")) || 1;
+      const section = actionEl.getAttribute("data-section") || "";
+      const page = Number(actionEl.getAttribute("data-page")) || 1;
+      if (section && Object.prototype.hasOwnProperty.call(state.pages, section)) {
+        state.pages[section] = page;
+      } else {
+        state.page = page;
+      }
       state.menuId = "";
       render();
       return;
@@ -799,6 +1060,7 @@ const App = (() => {
     if (action === "filter-status") {
       state.statusFilter = actionEl.value;
       state.page = 1;
+      state.pages = emptyPages();
       render();
     }
     if (action === "insert-tipo" || action === "insert-grupo") {
@@ -852,6 +1114,7 @@ const App = (() => {
     if (event.target.id === "global-search") {
       state.search = event.target.value;
       state.page = 1;
+      state.pages = emptyPages();
       window.clearTimeout(onInput._t);
       onInput._t = window.setTimeout(() => render(), 180);
     }
@@ -898,6 +1161,7 @@ const App = (() => {
         state.grupo = payload.grupo;
         state.procedimento = payload.procedimento;
         state.page = 1;
+        state.pages = emptyPages();
         toast("Paciente inserido na fila.");
       } catch (error) {
         state.formError = error.message || "Não foi possível inserir o paciente.";

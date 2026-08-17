@@ -83,17 +83,30 @@ const Store = (() => {
     grouped.forEach((list, id) => {
       const firstInclusion = list.find((item) => item.TIPO_EVENTO === "INCLUSAO") || list[0];
       const current = list[list.length - 1];
+      const prioridadeInicial = firstInclusion.PRIORIDADE || "";
       let atendidoEm = "";
-      list.forEach((item) => {
+      let encerradoEm = "";
+      let prioridadeAlteradaEm = "";
+      list.forEach((item, index) => {
+        const previous = index > 0 ? list[index - 1] : null;
+        if (item.TIPO_EVENTO === "ALTERACAO_PRIORIDADE" || (previous && item.PRIORIDADE && item.PRIORIDADE !== previous.PRIORIDADE)) {
+          prioridadeAlteradaEm = item.CARIMBO_DATA_HORA;
+        }
         if (item.STATUS === "Atendido" && !atendidoEm) {
           atendidoEm = item.CARIMBO_DATA_HORA;
+        }
+        if ((item.STATUS === "Atendido" || item.STATUS === "Cancelado") && !encerradoEm) {
+          encerradoEm = item.CARIMBO_DATA_HORA;
         }
       });
 
       const solicitation = {
         id,
         dataInsercao: firstInclusion.CARIMBO_DATA_HORA,
+        prioridadeInicial,
+        prioridadeAlteradaEm,
         atendidoEm,
+        encerradoEm,
         eventos: list,
         CARIMBO_DATA_HORA: current.CARIMBO_DATA_HORA,
         ID_EVENTO: current.ID_EVENTO,
